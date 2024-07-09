@@ -1,0 +1,5 @@
+venv3.8/Library/bin/mkl_intel_thread.1.dll
+venv3.8/Library/bin/mkl_pgi_thread.1.dll
+week01/notebooks/inverted_index.csv
+venv3.8/Library/bin/mkl_avx512.1.dll
+venv3.8/Library/bin/mkl_core.1.dll
