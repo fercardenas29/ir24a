@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<!-- saved from url=(0537)https://s2.paa-reporting-advertising.amazon/paa/rf_module_registration.html?bidRequestId=nYXuJybRxtUllLUVPSWK7g&gdprConsent=true&srcName=DRA&campaignId=300019024019806&ep=paa%2Cara%2Cforensics&bidId=dDcDju0nJziNxYj8nPhxuQ&advertiserId=464152472102&gdpr=0&clickDestnUrl=http%3A%2F%2Fwww.amazon.com%2F&tungstenCSMLoggingFrameworkUrl=tungsten-service.prod.na.adsqtungsten.a9.amazon.dev%2Fcsm%2F&tsEndpoint=https%3A%2F%2Fsq-tungsten-ts.amazon-adsystem.com%2Fnoop%2F&adId=300284630432302&zone=USEast&is3p=true&ntdUrl=btd-na.tq-tungsten.com%2F -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=windows-1252"><style data-merge-styles="true"></style><style data-merge-styles="true"></style></head><body>
+<script>
+    const errors = [];
+    const BIDDER_CATEGORY_DRA = 'DRA';
+
+    const pushErrorMessage = (place) => (err) => {
+        errors.push({
+            name: err.name,
+            message: err.message,
+            place
+        });
+    };
+
+    const doNothing = () => {
+    };
+
+    async function registerAndExecuteRF(input) {
+        await window.sharedStorage.worklet.addModule('rf_module.js');
+        await window.sharedStorage.run('rf-module', {
+            data: input,
+            privateAggregationConfig: {contextId: input.debugKey}
+        });
+    }
+
+    function parseInputParameters() {
+        const params = new URLSearchParams(location.search);
+        const bidderCategory = params.get('srcName') || '';
+        const adId = bidderCategory === BIDDER_CATEGORY_DRA
+            ? params.get('adGroupId')
+            : (params.get('a') || params.get('ad_id') || params.get('adId'));
+        return {
+            creativeId: params.get('c') || params.get('creative_id') || params.get('creativeId'),
+            adId,
+            campaignId: params.get('ca') || params.get('campaign_id') || params.get('campaignId'),
+            advertiserId: params.get('av') || params.get('advertiser_id') || params.get('advertiserId'),
+            is3P: params.get('istp') || params.get('is_3p') || params.get('is3p'),
+            debugKey: params.get('d') || params.get('request_bidid') || params.get('bidId'),
+            bidderCategory,
+            gdprConsent: params.get('gdprConsent'),
+            gdpr: params.get('gdpr'),
+            tcString: params.get('tcString'),
+            msrTechnique: params.get('msrTechnique') || ''
+        };
+    }
+
+    async function executeForChrome() {
+        const input = parseInputParameters();
+        const isOffsite = checkIsOffsite(input);
+        const hasConsent = checkConsent(input);
+        const browserContext = await getBrowserContext();
+        if (canExecuteSharedStorageWorklet(hasConsent, isOffsite, browserContext)) {
+            await registerAndExecuteRF(input).catch(pushErrorMessage('registerAndExecuteRF'));
+        }
+
+        registerEventContext(browserContext, input, isOffsite, hasConsent).catch(doNothing);
+    }
+
+    function canExecuteSharedStorageWorklet(hasConsent, isOffsite, browserContext) {
+        return hasConsent
+            && isOffsite
+            && browserContext.hasSharedStorage
+            && browserContext.isSupportedBrowserVersion;
+    }
+
+    function checkIsOffsite(input) {
+        return checkBooleanParameter(input.is3P, true, 'checkIsOffsite', 'UnexpectedIs3P');
+    }
+
+    function checkConsent(input) {
+        return checkBooleanParameter(input.gdprConsent, true, 'checkConsent', 'UnexpectedGdprConsent');
+    }
+
+    function checkBooleanParameter(value, fallbackValue, place, errorName) {
+        if (value === false || value === 'false') {
+            return false;
+        } else if (value === true || value === 'true') {
+            return true;
+        } else {
+            pushErrorMessage(place)({
+                name: errorName,
+                message: value
+            });
+            return fallbackValue;
+        }
+    }
+
+    async function isSupportedBrowser(userAgentData) {
+        try {
+            const ua = await userAgentData.getHighEntropyValues(['fullVersionList'])
+            for (const brandAndVersion of ua.fullVersionList) {
+                if (brandAndVersion.brand === 'Google Chrome') {
+                    const versionList = brandAndVersion.version.split('.').map(Number);
+                    const version = versionList[0];
+                    const branch = versionList[2];
+                    const patch = versionList[3];
+                    if ((version === 117 && branch === 5938 && patch >= 149) ||
+                        (version === 118 && branch === 5993 && patch >= 32) ||
+                        version >= 119) {
+                        return true;
+                    }
+                }
+            }
+        } catch (err) {
+            pushErrorMessage('isSupportedBrowser')(err);
+        }
+
+        return false;
+    }
+
+    async function getBrowserContext() {
+      const place = 'getBrowserContext';
+      const hasSharedStorage = safeCheck(place, () => { return !!window.sharedStorage; });
+      const hasUserAgentData = safeCheck(place, () => { return !!navigator && !!navigator.userAgentData; });
+      const isSupportedBrowserVersion = hasUserAgentData && await isSupportedBrowser(navigator.userAgentData);
+      return { hasSharedStorage, hasUserAgentData, isSupportedBrowserVersion };
+    }
+
+    function safeCheck(place, checkFunction) {
+        try {
+            return checkFunction();
+        } catch (err) {
+            pushErrorMessage(place)(err);
+            return false;
+        }
+    }
+
+    async function registerEventContext(browserContext, input, isOffsite, hasConsent) {
+        await window.fetch('/event-context/register', {
+            method: 'POST',
+            body: JSON.stringify({
+                has_shared_storage: browserContext.hasSharedStorage,
+                has_user_agent_data: browserContext.hasUserAgentData,
+                is_supported_browser_version: browserContext.isSupportedBrowserVersion,
+                is_offsite: isOffsite,
+                has_consent: hasConsent,
+                campaign_id: input.campaignId,
+                ad_id: input.adId,
+                debug_key: input.debugKey,
+                msr_technique: input.msrTechnique,
+                errors
+            })
+        });
+    }
+
+    executeForChrome().catch(doNothing);
+</script>
+
+</body><editor-card style="position:absolute;top:0px;left:0px;z-index:auto;display: block !important"><div dir="ltr" style="all: initial;"><div style="color-scheme: initial; forced-color-adjust: initial; mask: initial; math-depth: initial; position: absolute; position-anchor: initial; appearance: initial; color: initial; font: initial; font-palette: initial; font-synthesis: initial; inset-area: initial; text-orientation: initial; text-rendering: initial; text-spacing-trim: initial; -webkit-font-smoothing: initial; -webkit-locale: initial; -webkit-text-orientation: initial; -webkit-writing-mode: initial; writing-mode: initial; zoom: initial; accent-color: initial; place-content: initial; place-items: initial; place-self: initial; alignment-baseline: initial; anchor-name: initial; animation-composition: initial; animation: initial; app-region: initial; aspect-ratio: initial; backdrop-filter: initial; backface-visibility: initial; background: initial; background-blend-mode: initial; baseline-shift: initial; baseline-source: initial; block-size: initial; border-block: initial; border: initial; border-radius: initial; border-collapse: initial; border-end-end-radius: initial; border-end-start-radius: initial; border-inline: initial; border-start-end-radius: initial; border-start-start-radius: initial; inset: initial; box-shadow: initial; box-sizing: initial; break-after: initial; break-before: initial; break-inside: initial; buffered-rendering: initial; caption-side: initial; caret-color: initial; clear: initial; clip: initial; clip-path: initial; clip-rule: initial; color-interpolation: initial; color-interpolation-filters: initial; color-rendering: initial; columns: initial; column-fill: initial; gap: initial; column-rule: initial; column-span: initial; contain: initial; contain-intrinsic-block-size: initial; contain-intrinsic-size: initial; contain-intrinsic-inline-size: initial; container: initial; content: initial; content-visibility: initial; counter-increment: initial; counter-reset: initial; counter-set: initial; cursor: initial; cx: initial; cy: initial; d: initial; display: initial; dominant-baseline: initial; empty-cells: initial; field-sizing: initial; fill: initial; fill-opacity: initial; fill-rule: initial; filter: initial; flex: initial; flex-flow: initial; float: initial; flood-color: initial; flood-opacity: initial; grid: initial; grid-area: initial; height: initial; hyphenate-character: initial; hyphenate-limit-chars: initial; hyphens: initial; image-orientation: initial; image-rendering: initial; initial-letter: initial; inline-size: initial; inset-block: initial; inset-inline: initial; isolation: initial; letter-spacing: initial; lighting-color: initial; line-break: initial; list-style: initial; margin-block: initial; margin: initial; margin-inline: initial; marker: initial; mask-type: initial; math-shift: initial; math-style: initial; max-block-size: initial; max-height: initial; max-inline-size: initial; max-width: initial; min-block-size: initial; min-height: initial; min-inline-size: initial; min-width: initial; mix-blend-mode: initial; object-fit: initial; object-position: initial; object-view-box: initial; offset: initial; opacity: initial; order: initial; orphans: initial; outline: initial; outline-offset: initial; overflow-anchor: initial; overflow-clip-margin: initial; overflow-wrap: initial; overflow: initial; overlay: initial; overscroll-behavior-block: initial; overscroll-behavior-inline: initial; overscroll-behavior: initial; padding-block: initial; padding: initial; padding-inline: initial; page: initial; page-orientation: initial; paint-order: initial; perspective: initial; perspective-origin: initial; pointer-events: initial; position-try: initial; position-visibility: initial; quotes: initial; r: initial; resize: initial; rotate: initial; ruby-position: initial; rx: initial; ry: initial; scale: initial; scroll-behavior: initial; scroll-margin-block: initial; scroll-margin: initial; scroll-margin-inline: initial; scroll-padding-block: initial; scroll-padding: initial; scroll-padding-inline: initial; scroll-snap-align: initial; scroll-snap-stop: initial; scroll-snap-type: initial; scroll-timeline: initial; scrollbar-color: initial; scrollbar-gutter: initial; scrollbar-width: initial; shape-image-threshold: initial; shape-margin: initial; shape-outside: initial; shape-rendering: initial; size: initial; speak: initial; stop-color: initial; stop-opacity: initial; stroke: initial; stroke-dasharray: initial; stroke-dashoffset: initial; stroke-linecap: initial; stroke-linejoin: initial; stroke-miterlimit: initial; stroke-opacity: initial; stroke-width: initial; tab-size: initial; table-layout: initial; text-align: initial; text-align-last: initial; text-anchor: initial; text-combine-upright: initial; text-decoration: initial; text-decoration-skip-ink: initial; text-emphasis: initial; text-emphasis-position: initial; text-indent: initial; text-overflow: initial; text-shadow: initial; text-size-adjust: initial; text-transform: initial; text-underline-offset: initial; text-underline-position: initial; white-space: initial; timeline-scope: initial; touch-action: initial; transform: initial; transform-box: initial; transform-origin: initial; transform-style: initial; transition: initial; translate: initial; user-select: initial; vector-effect: initial; vertical-align: initial; view-timeline: initial; view-transition-class: initial; view-transition-name: initial; visibility: initial; border-spacing: initial; -webkit-box-align: initial; -webkit-box-decoration-break: initial; -webkit-box-direction: initial; -webkit-box-flex: initial; -webkit-box-ordinal-group: initial; -webkit-box-orient: initial; -webkit-box-pack: initial; -webkit-box-reflect: initial; -webkit-line-break: initial; -webkit-line-clamp: initial; -webkit-mask-box-image: initial; -webkit-print-color-adjust: initial; -webkit-rtl-ordering: initial; -webkit-ruby-position: initial; -webkit-tap-highlight-color: initial; -webkit-text-combine: initial; -webkit-text-decorations-in-effect: initial; -webkit-text-fill-color: initial; -webkit-text-security: initial; -webkit-text-stroke: initial; -webkit-user-drag: initial; widows: initial; width: initial; will-change: initial; word-break: initial; word-spacing: initial; x: initial; y: initial; z-index: 2147483647;"><link rel="stylesheet" href="chrome-extension://hokifickgkhplphjiodbggjmoafhignh/fonts/fabric-icons.css"><div style="all: initial;"><template shadowrootmode="open"></template></div></div><div style="color-scheme: initial; forced-color-adjust: initial; mask: initial; math-depth: initial; position: absolute; position-anchor: initial; appearance: initial; color: initial; font: initial; font-palette: initial; font-synthesis: initial; inset-area: initial; text-orientation: initial; text-rendering: initial; text-spacing-trim: initial; -webkit-font-smoothing: initial; -webkit-locale: initial; -webkit-text-orientation: initial; -webkit-writing-mode: initial; writing-mode: initial; zoom: initial; accent-color: initial; place-content: initial; place-items: initial; place-self: initial; alignment-baseline: initial; anchor-name: initial; animation-composition: initial; animation: initial; app-region: initial; aspect-ratio: initial; backdrop-filter: initial; backface-visibility: initial; background: initial; background-blend-mode: initial; baseline-shift: initial; baseline-source: initial; block-size: initial; border-block: initial; border: initial; border-radius: initial; border-collapse: initial; border-end-end-radius: initial; border-end-start-radius: initial; border-inline: initial; border-start-end-radius: initial; border-start-start-radius: initial; inset: initial; box-shadow: initial; box-sizing: initial; break-after: initial; break-before: initial; break-inside: initial; buffered-rendering: initial; caption-side: initial; caret-color: initial; clear: initial; clip: initial; clip-path: initial; clip-rule: initial; color-interpolation: initial; color-interpolation-filters: initial; color-rendering: initial; columns: initial; column-fill: initial; gap: initial; column-rule: initial; column-span: initial; contain: initial; contain-intrinsic-block-size: initial; contain-intrinsic-size: initial; contain-intrinsic-inline-size: initial; container: initial; content: initial; content-visibility: initial; counter-increment: initial; counter-reset: initial; counter-set: initial; cursor: initial; cx: initial; cy: initial; d: initial; display: initial; dominant-baseline: initial; empty-cells: initial; field-sizing: initial; fill: initial; fill-opacity: initial; fill-rule: initial; filter: initial; flex: initial; flex-flow: initial; float: initial; flood-color: initial; flood-opacity: initial; grid: initial; grid-area: initial; height: initial; hyphenate-character: initial; hyphenate-limit-chars: initial; hyphens: initial; image-orientation: initial; image-rendering: initial; initial-letter: initial; inline-size: initial; inset-block: initial; inset-inline: initial; isolation: initial; letter-spacing: initial; lighting-color: initial; line-break: initial; list-style: initial; margin-block: initial; margin: initial; margin-inline: initial; marker: initial; mask-type: initial; math-shift: initial; math-style: initial; max-block-size: initial; max-height: initial; max-inline-size: initial; max-width: initial; min-block-size: initial; min-height: initial; min-inline-size: initial; min-width: initial; mix-blend-mode: initial; object-fit: initial; object-position: initial; object-view-box: initial; offset: initial; opacity: initial; order: initial; orphans: initial; outline: initial; outline-offset: initial; overflow-anchor: initial; overflow-clip-margin: initial; overflow-wrap: initial; overflow: initial; overlay: initial; overscroll-behavior-block: initial; overscroll-behavior-inline: initial; overscroll-behavior: initial; padding-block: initial; padding: initial; padding-inline: initial; page: initial; page-orientation: initial; paint-order: initial; perspective: initial; perspective-origin: initial; pointer-events: initial; position-try: initial; position-visibility: initial; quotes: initial; r: initial; resize: initial; rotate: initial; ruby-position: initial; rx: initial; ry: initial; scale: initial; scroll-behavior: initial; scroll-margin-block: initial; scroll-margin: initial; scroll-margin-inline: initial; scroll-padding-block: initial; scroll-padding: initial; scroll-padding-inline: initial; scroll-snap-align: initial; scroll-snap-stop: initial; scroll-snap-type: initial; scroll-timeline: initial; scrollbar-color: initial; scrollbar-gutter: initial; scrollbar-width: initial; shape-image-threshold: initial; shape-margin: initial; shape-outside: initial; shape-rendering: initial; size: initial; speak: initial; stop-color: initial; stop-opacity: initial; stroke: initial; stroke-dasharray: initial; stroke-dashoffset: initial; stroke-linecap: initial; stroke-linejoin: initial; stroke-miterlimit: initial; stroke-opacity: initial; stroke-width: initial; tab-size: initial; table-layout: initial; text-align: initial; text-align-last: initial; text-anchor: initial; text-combine-upright: initial; text-decoration: initial; text-decoration-skip-ink: initial; text-emphasis: initial; text-emphasis-position: initial; text-indent: initial; text-overflow: initial; text-shadow: initial; text-size-adjust: initial; text-transform: initial; text-underline-offset: initial; text-underline-position: initial; white-space: initial; timeline-scope: initial; touch-action: initial; transform: initial; transform-box: initial; transform-origin: initial; transform-style: initial; transition: initial; translate: initial; user-select: initial; vector-effect: initial; vertical-align: initial; view-timeline: initial; view-transition-class: initial; view-transition-name: initial; visibility: initial; border-spacing: initial; -webkit-box-align: initial; -webkit-box-decoration-break: initial; -webkit-box-direction: initial; -webkit-box-flex: initial; -webkit-box-ordinal-group: initial; -webkit-box-orient: initial; -webkit-box-pack: initial; -webkit-box-reflect: initial; -webkit-line-break: initial; -webkit-line-clamp: initial; -webkit-mask-box-image: initial; -webkit-print-color-adjust: initial; -webkit-rtl-ordering: initial; -webkit-ruby-position: initial; -webkit-tap-highlight-color: initial; -webkit-text-combine: initial; -webkit-text-decorations-in-effect: initial; -webkit-text-fill-color: initial; -webkit-text-security: initial; -webkit-text-stroke: initial; -webkit-user-drag: initial; widows: initial; width: initial; will-change: initial; word-break: initial; word-spacing: initial; x: initial; y: initial; z-index: 2147483647;"><link rel="stylesheet" href="chrome-extension://hokifickgkhplphjiodbggjmoafhignh/fonts/fabric-icons.css"></div></div></editor-card></html>

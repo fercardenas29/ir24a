@@ -1,0 +1,55 @@
+function extractPayloadParam() {
+    var doc = typeof window !== 'undefined' ? window.document : document;
+    var scriptUrl = new URL(doc.currentScript.src);
+
+    //Extracting payload params from script url
+    var params = new URLSearchParams(scriptUrl.search);
+    var payloadParam = params.has('p') ? JSON.parse(decodeURIComponent(params.get('p'))) : null;
+
+    return payloadParam;
+}
+
+function constructScriptUrl(baseUrl, params){
+    baseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+
+    //Construct query parameters
+    const queryParams = Object.entries(params)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join('&');
+
+    //Append query parameters to baseUrl
+    const scriptUrl = baseUrl + '?' + queryParams;
+    return scriptUrl;
+}
+
+function injectTag(tag, scriptUrl) {
+    if(tag === 'script') {
+        const script = document.createElement('script');
+        script.src = scriptUrl;
+        document.body.appendChild(script);
+    } else if (tag === 'iframe') {
+        const iframe = document.createElement('iframe');
+        iframe.src = scriptUrl;
+        iframe.style.display = 'none';
+        document.body.appendChild(iframe);
+    }
+}
+
+function init() {
+    var payload = extractPayloadParam();
+    if(payload.hasOwnProperty('ep') && payload['ep'].length > 0){
+        var enabledPartners = payload['ep'];
+        if(enabledPartners.includes('paa')) {
+            var baseUrl = 'https://s2.paa-reporting-advertising.amazon/paa/rf_module_registration.html';
+            var scriptUrl =  constructScriptUrl(baseUrl, payload);
+            injectTag('iframe', scriptUrl);
+        }
+        if(enabledPartners.includes('ara')) {
+            var baseUrl = 'https://d37unsldgykj8z.cloudfront.net/ara.js';
+            var scriptUrl =  constructScriptUrl(baseUrl, payload);
+            injectTag('script', scriptUrl);
+        }
+    }
+}
+
+init();
