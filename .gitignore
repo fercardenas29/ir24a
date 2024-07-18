@@ -7,7 +7,12 @@ __pycache__/
 *.so
 
 # Ignore large JSON file
+week10/data/GoogleNews-vectors-negative300.bin
+week10/data/GoogleNews-vectors-negative300.bin.gz
+week10/data/winemag-data_first150k.csv
+week10/data/winemag-data-130k-v2.csv
 week10/data/winemag-data-130k-v2.json
+
 
 # Distribution / packaging
 .Python
