@@ -14,6 +14,8 @@ week10/data/winemag-data-130k-v2.csv
 week10/data/winemag-data-130k-v2.json
 week14/data
 
+week14/introCNN.ipynb
+
 # Distribution / packaging
 .Python
 build/
